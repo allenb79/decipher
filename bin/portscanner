@@ -1,0 +1,73 @@
+#!/opt/anaconda3/bin/python -u
+# coding=utf-8
+
+import ast
+import getopt
+import os
+import requests
+import socket
+import socket
+import sys
+import threading
+from datetime import datetime
+
+def print_usage():
+    print  ("  Usage: %s [options]" % (os.path.basename(__file__))) 
+    print  ("  Options:")
+    print  ("  \t-s, --server\tThe server host to scan")
+    print  ("  \t-p, --ports\tThe ports to scan (separate ports by ',')")
+    print  ("  \t-t, --timeout\tThe number of seconds before timing out (Default: 5 seconds)")
+    print  ("  \t-h, --help\tHelp")
+    
+def main(argv):
+    argHost = ""
+    argPorts = []
+    argTimeout = 5.0
+    
+    try:
+        opts, args = getopt.getopt(argv,"hs:p:t:",["server=","ports=","timeout="])
+        argFiles = args
+    except getopt.GetoptError:
+        print_usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ('-h', "--help"):
+            print_usage()
+            sys.exit()     
+        elif opt in ("-s", "--server"):
+            argHost = arg     
+        elif opt in ("-p", "--ports"):
+            argPorts = arg.split(',')
+        elif opt in ("-t", "--timeout"):
+            argTimeout = float(arg)
+
+    ports = []
+    for port in argPorts:
+        if "-" in port:
+            start_range, end_range = port.split('-')
+            for i in range(int(start_range), int(end_range)+1):
+                ports.append(i)
+        else:
+            ports.append(port)   
+
+    # validation
+    if len(argHost) == 0 or len(argPorts) == 0:
+        print_usage()
+        sys.exit(0)
+    
+    for port in ports:
+        sock=socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(argTimeout)
+        result=sock.connect_ex((argHost, int(port)))
+        sock.close()
+        if result == 0:
+            print('[{0}] Success: Port {1} is open'.format(argHost, port))
+        elif result == 11:
+            print('[{0}] Resource temporarily unavailable: Port {1} is closed'.format(argHost, port))
+        elif result == 111:
+            print('[{0}] Connection refused: Port {1} is closed'.format(argHost, port))
+        else:
+            print('[{0}] RetCode:{1}: Port {2} is closed'.format(argHost, result, port))
+
+if __name__ == '__main__':
+    main(sys.argv[1:])    

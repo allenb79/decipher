@@ -1,0 +1,179 @@
+#!/opt/anaconda3/bin/python -u
+
+import getopt
+import os
+import pandas as pd
+import sys
+
+def print_usage():
+    print  ("  Usage: %s [options]" % (os.path.basename(__file__))) 
+    print  ("  Options:")
+    print  ("  \t-d, --delim\tThe delimeter to use when parsing (Default: ,)")
+    print  ("  \t-f, --fields\tThe column names to display")
+    print  ("  \t-g, --groupby\tThe column(s) to group by")
+    print  ("  \t-i, --ignore\tIgnore the first n rows")
+    print  ("  \t-m, --match\tThe expression to match")
+    print  ("  \t-n, --nrows\tThe top n rows or bottom n rows (Negative to denote bottom)")
+    print  ("  \t-s, --sort\tSort by column")
+    print  ("  \t    --sum\tAggregator function for group by (SUM)")
+    print  ("  \t    --mean\tAggregator function for group by (MEAN)")
+    print  ("  \t-h, --help\tHelp")
+    
+def main(argv):
+    argFiles = None
+    argDelim = ","
+    argFields = None
+    argSort = None
+    argMatch = None
+    argNRows = None
+    argGroupBy = None
+    argSum = False
+    argMean = False
+    argIgnore = False
+    
+    try:
+        opts, args = getopt.getopt(argv,"hd:f:g:i:m:n:s:",["sum","mean","help","delim=","fields=","groupby=","ignore=","match=","nrows=","sort="])
+        argFiles = args
+    except getopt.GetoptError:
+        print_usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ('-h', "--help"):
+            print_usage()
+            sys.exit()     
+        elif opt in ("-d", "--delim"):
+            argDelim = arg     
+        elif opt in ("-g", "--groupby"):
+            argGroupBy = arg.split(',')        
+        elif opt in ("-f", "--fields"):
+            argFields = arg.split(',')
+        elif opt in ("-i", "--ignore"):
+            argIgnore = int(arg)      
+        elif opt in ("-m", "--match"):
+            argMatch = arg
+        elif opt in ("-n", "--nrows"):
+            argNRows = int(arg)
+        elif opt in ("-s", "--sort"):
+            argSort = arg    
+        elif opt == "--sum":
+            argSum = True    
+        elif opt == "--mean":
+            argMean = True                 
+            
+    # use stdin if it's full   
+    input_stream = None                                                     
+    if not sys.stdin.isatty():
+        input_stream = sys.stdin
+            
+    # validation
+    if len(argDelim) == 0 or (len(argFiles) == 0 and input_stream is None):
+        print_usage()
+        sys.exit(0)
+        
+    if not argGroupBy is None and argSum == False and argMean == False:
+        print("Aggregator missing.  Use --sum or --mean")
+        print_usage()
+        sys.exit(0)
+
+    csv_df = None
+    if len(argFiles) == 1:
+        # single file        
+        if os.path.exists(argFiles[0]):
+            # fields
+            if argFields is None:
+                if argIgnore is None:
+                    csv_df = pd.read_csv(argFiles[0])
+                else:
+                    csv_df = pd.read_csv(argFiles[0], skiprows=argIgnore)
+            else:
+                if argIgnore is None:
+                    csv_df = pd.read_csv(argFiles[0], usecols=argFields)
+                    csv_df = csv_df[argFields] # re-arrange columns in order of fields specified
+                else:
+                    csv_df = pd.read_csv(argFiles[0], usecols=argFields, skiprows=argIgnore)
+                    csv_df = csv_df[argFields] # re-arrange columns in order of fields specified           
+        else:
+            print("File '%s' not found" % (argFiles[0]))
+    elif len(argFiles) > 1:
+        # multiple files    
+        for file in argFiles:
+            # fields
+            if argFields is None:
+                file_df = pd.read_csv(file)
+                csv_df = file_df if csv_df is None else csv_df.append(file_df)
+            else:
+                file_df = pd.read_csv(file, usecols=argFields)
+                file_df = file_df[argFields] # re-arrange columns in order of fields specified
+                csv_df = file_df if csv_df is None else csv_df.append(file_df)
+    else:
+        # incoming stream
+        if argFields is None:
+            if argIgnore is None:
+                csv_df = pd.read_csv(input_stream)
+            else:
+                csv_df = pd.read_csv(input_stream, skiprows=argIgnore)
+        else:
+            if argIgnore is None:
+                csv_df = pd.read_csv(input_stream, usecols=argFields)
+                csv_df = csv_df[argFields] # re-arrange columns in order of fields specified
+            else:
+                csv_df = pd.read_csv(input_stream, usecols=argFields, skiprows=argIgnore)
+                csv_df = csv_df[argFields] # re-arrange columns in order of fields specified              
+ 
+    # group by
+    if not argGroupBy is None:
+        groupdf = csv_df.groupby(argGroupBy)
+        if argSum:
+            csv_df = groupdf.sum().reset_index()
+        if argMean:
+            csv_df = groupdf.mean().reset_index()
+    
+    # sortable
+    if not argSort is None:
+        if not argSort in csv_df.columns:
+            print("Sort column '%s' doesn't exist" % (argSort))
+        csv_df = csv_df.sort_values(argSort)
+        
+    # take N rows
+    if not argNRows is None:
+        argNRows = min([argNRows, csv_df.shape[0]])
+        if argNRows < 0:
+            csv_df = csv_df.tail(abs(argNRows))
+        else:
+            csv_df = csv_df.head(argNRows)
+        
+    # length of column headers
+    col_width = {}
+    for col in csv_df.columns:
+        col_width[col] = len(col)
+    
+    for index, row in csv_df.iterrows():
+        for col in csv_df.columns:
+            colLen = len(str(row[col]))
+            if not col in col_width:
+                col_width[col] = colLen
+            elif colLen > col_width[col]:
+                col_width[col] = colLen
+                
+    header_out = ""
+    header_div = ""
+    for col in csv_df.columns:
+        header_out = header_out + " " + col.rjust(col_width[col]) + " |"
+        header_div = header_div + ("=" * (col_width[col]+3))
+        
+    print(header_out)
+    print(header_div)
+    for index, row in csv_df.iterrows():
+        show = True
+        row_out = ""
+        if not argMatch is None:
+            if not argMatch in str(row):
+                show = False
+
+        for col in csv_df.columns:
+            row_out = row_out + " " + str(row[col]).rjust(col_width[col]) + " |"
+        if show:
+            print(row_out)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])    

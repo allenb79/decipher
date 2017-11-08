@@ -1,0 +1,109 @@
+#!/opt/anaconda3/bin/python -u
+# coding=utf-8
+
+import ast
+import getopt
+import os
+import sys
+from html.parser import HTMLParser
+from urllib.request import urlopen, urlretrieve
+from urllib.error import URLError, HTTPError
+from urllib.parse import urlsplit
+
+def print_usage():
+    print  ("  Usage: %s [options]" % (os.path.basename(__file__))) 
+    print  ("  Options:")
+    print  ("  \t-a, --assets\tThe assets to download (Ex. jpg,pdf)")
+    print  ("  \t-o, --output\tThe output directory")
+    print  ("  \t-h, --help\tHelp")
+    
+# create a subclass and override the handler methods
+class WebAssetsParser(HTMLParser):
+    def __init__(self, assets, url):
+        HTMLParser.__init__(self)
+        self.assets = assets
+        self.dirurl = os.path.dirname(url) + "/"
+        self.baseurl = "{0.scheme}://{0.netloc}/".format(urlsplit(url))
+        self.data = []
+
+    def handle_starttag(self, tag, attrs):
+        for attr in attrs:
+            for asset in self.assets:
+                if not attr[1] is None and ('.' + asset) in attr[1]:
+                    attrval = attr[1]
+                    if '//' in attrval:
+                        self.data.append(attrval)
+                    elif '/' in attrval:
+                        self.data.append(self.baseurl + attrval)
+                    else:
+                        self.data.append(self.dirurl + attrval)
+                
+
+            
+def download_asset(url, output):
+    basename = os.path.basename(url)
+    if not output.endswith('/'):
+        output = output + '/'
+    output_file = output + basename
+    if not os.path.exists(output_file):
+        if not os.path.exists(os.path.dirname(output_file)):
+            os.makedirs(os.path.dirname(output_file))     
+        print("Downloading %s to %s" % (url, output_file))       
+        urlretrieve(url, output_file)   
+
+def download_assets(url, assets, output):
+    try:
+        print("Opening url '%s'"% (url))
+        urlResp = urlopen(url, timeout=60)
+        html = urlResp.read()
+        urlResp.close()
+        
+        # instantiate the parser and fed it some HTML
+        htmlparser = WebAssetsParser(assets, url)
+        htmlparser.feed(str(html))
+        if len(htmlparser.data) > 0:
+            print("%d assets found" % (len(htmlparser.data)))
+            for asset_url in htmlparser.data:
+                download_asset(asset_url, output)
+        else:
+            print("No assets found")
+    #handle errors
+    except HTTPError as e:
+        print("HTTP Error: %s, url=%s" % (str(e.code), url))         
+    except URLError as e:
+        print("URL Error: %s, url=%s" % (e.reason, url))       
+    except OSError as e:
+        print("OS Error: %s, url=%s" % (e, url))               
+    except:
+        print("Unknown Error: %s, url=%s" % (sys.exc_info()[0], url))      
+
+def main(argv):
+    argAssets = []
+    argOutput = ""
+    argPages = None
+    
+    try:
+        opts, args = getopt.getopt(argv,"ha:o:",["assets=","output="])
+        argPages = args
+    except getopt.GetoptError:
+        print_usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ('-h', "--help"):
+            print_usage()
+            sys.exit()     
+        elif opt in ("-a", "--assets"):
+            argAssets = arg.split(',')
+        elif opt in ("-o", "--output"):
+            argOutput = arg
+
+    # validation
+    if argPages is None or len(argPages) == 0:
+        print_usage()
+        sys.exit(0)
+
+    for page in argPages:
+        download_assets(page, argAssets, argOutput)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])    
