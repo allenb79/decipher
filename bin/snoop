@@ -1,0 +1,86 @@
+#!/opt/anaconda3/bin/python -u
+
+import getopt
+import os
+import time
+import struct
+import socket
+import sys
+from datetime import datetime
+
+def print_usage():
+    print  ("  Usage: %s [options]" % (os.path.basename(__file__)))
+    print  ("  Options:")
+    print  ("  \t-g, --group\tMulticast group to join")
+    print  ("  \t-p, --port\tMulticast port")
+    print  ("  \t-i, --interface\tMulticast interface address")
+    print  ("  \t-o, --output\tRecord to output file")
+    print  ("  \t-h, --help\tHelp")
+
+def join(group, port, interface): 
+    # create a UDP socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
+    # allow other sockets to bind this port too
+    s.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1) 
+
+    # explicitly join the multicast group on the interface specified
+    s.setsockopt(socket.SOL_IP,socket.IP_ADD_MEMBERSHIP, socket.inet_aton(group)+socket.inet_aton(interface))
+
+    # finally bind the socket to start getting data into your socket
+    s.bind((group,int(port)))
+    
+    return (s)
+
+def receiver(group, port, interface, output):
+    # Join socket
+    s = join(group, port, interface)
+
+    # Loop, printing any data we receive
+    f = open(output, 'wb')
+    try:
+        while True:        
+            data = s.recv(1024)
+            ts = "[%s] " % (datetime.strftime(datetime.utcnow(), "%Y%m%d %H:%M:%S.%f"))
+            f.write(ts.encode('ascii'))
+            f.write(data)
+            f.write("\n".encode('ascii'))
+            f.flush()
+    except KeyboardInterrupt:
+        print("Keyboard Interrupt. Exiting...")
+    finally:
+        f.close()
+        s.close()
+              
+def main(argv):
+    argGroup = ""
+    argPort = ""
+    argInterface = ""
+    argOutput = ""
+
+    try:
+        opts, args = getopt.getopt(argv,"hg:p:i:o:",["help","group=","port=","interface=","output="])
+    except getopt.GetoptError:
+        print_usage()
+        sys.exit(2)
+    for opt, arg in opts:
+        if opt in ('-h', "--help"):
+            print_usage()
+            sys.exit()
+        elif opt in ("-g", "--group"):
+            argGroup = arg
+        elif opt in ("-p", "--port"):
+            argPort = arg
+        elif opt in ("-i", "--interface"):
+            argInterface = arg
+        elif opt in ("-o", "--output"):
+            argOutput = arg
+
+    if len(argGroup.strip()) == 0 or len(argPort.strip()) == 0 or len(argInterface.strip()) == 0 or len(argOutput.strip()) == 0:
+        print_usage()
+        sys.exit()
+
+    receiver(argGroup, int(argPort), argInterface, argOutput)
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
